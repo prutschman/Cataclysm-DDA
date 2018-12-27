@@ -237,6 +237,7 @@ game::game() :
     events( *event_manager_ptr ),
     weather( WEATHER_CLEAR ),
     lightning_active( false ),
+    u_shared_ptr( &u, null_deleter{} ),
     pixel_minimap_option( 0 ),
     safe_mode( SAFE_MODE_ON ),
     safe_mode_warning_logged( false ),
@@ -5355,8 +5356,7 @@ std::shared_ptr<T> game::shared_from( const T &critter )
     }
     if( static_cast<const Creature *>( &critter ) == static_cast<const Creature *>( &u ) ) {
         // u is not stored in a shared_ptr, but it won't go out of scope anyway
-        const std::shared_ptr<player> player_ptr( &u, []( player * ) { } );
-        return std::dynamic_pointer_cast<T>( player_ptr );
+        return std::dynamic_pointer_cast<T>( u_shared_ptr );
     }
     for( auto &cur_npc : active_npc ) {
         if( static_cast<const Creature *>( cur_npc.get() ) == static_cast<const Creature *>( &critter ) ) {
@@ -7057,7 +7057,7 @@ void game::zones_manager()
                 as_m.entries.emplace_back( 2, true, '2', _( "Edit type" ) );
                 as_m.entries.emplace_back( 3, zone.get_options().has_options(), '3',
                                            _( "Edit options" ) );
-                as_m.entries.emplace_back( 4, true, '4', _( "Edit position" ) );
+                as_m.entries.emplace_back( 4, !zone.get_is_vehicle(), '4', _( "Edit position" ) );
                 as_m.query();
 
                 switch( as_m.ret ) {
@@ -7190,6 +7190,10 @@ void game::zones_manager()
                     mvwprintz( w_zones, iNum - start_index, 32, colorLine, "%*d %s",
                                5, static_cast<int>( trig_dist( player_absolute_pos, center ) ),
                                direction_name_short( direction_from( player_absolute_pos, center ) ).c_str() );
+
+                    //Draw Vehicle Indicator
+                    mvwprintz( w_zones, iNum - start_index, 41, colorLine,
+                               zone.get_is_vehicle() ? "*" : "" );
                 }
                 iNum++;
             }
@@ -11847,6 +11851,10 @@ cata::optional<tripoint> game::find_or_make_stairs( map &mp, const int z_after, 
     }
 
     if( movez > 0 ) {
+        if( !mp.has_flag( "GOES_DOWN", *stairs ) ) {
+            popup( _( "Halfway up, the way up becomes blocked off." ) );
+            return cata::nullopt;
+        }
         // Manhole covers need this to work
         // Maybe require manhole cover here and fail otherwise?
         return stairs;
@@ -11929,6 +11937,7 @@ void game::vertical_shift( const int z_after )
     if( !m.has_zlevels() ) {
         m.clear_vehicle_cache( z_before );
         m.access_cache( z_before ).vehicle_list.clear();
+        m.access_cache( z_before ).zone_vehicles.clear();
         m.set_transparency_cache_dirty( z_before );
         m.set_outside_cache_dirty( z_before );
         m.load( get_levx(), get_levy(), z_after, true );
